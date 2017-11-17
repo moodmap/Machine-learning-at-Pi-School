@@ -1,0 +1,80 @@
+'''
+This is my first successful CNN built from scratch (downloading images all the way to reporting accuracy and improving.
+'''
+
+import random
+import tensorflow as tf
+from PIL import Image
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+from sklearn import linear_model
+from sklearn import model_selection
+
+X = []
+Y = []
+
+folder_3 = "/home/jh/Desktop/images/dolphin/"
+folder_4 = "/home/jh/Desktop/images/lion/"
+name_encode = {"dolphin":0, "lion":1}
+
+def images_to_array(folder_number, name):
+
+    for i in os.listdir(folder_number):
+        image = Image.open(os.path.join(folder_number, i))
+        x = Image.Image.resize(image, [100,100])
+        x = np.array(x)
+        #x = tf.cast(x, tf.float32)
+        X.append(x)
+        Y.append(name_encode[name])
+
+
+images_to_array(folder_3, 'dolphin')
+images_to_array(folder_4, 'lion')
+        
+        
+        
+
+X_train, X_test, y_train, y_test = model_selection.train_test_split(X, Y, test_size=0.5)
+
+image_place = tf.placeholder(tf.float32, shape=([None, 100, 100, 3]))
+label_place = tf.placeholder(tf.int32, shape=([None,]))
+label_one_hot = tf.one_hot(label_place, 2)
+label_one_hot = tf.cast(label_one_hot, tf.float32)
+
+
+input_layer = tf.reshape(image_place, [-1, 100, 100, 3])
+conv1 = tf.layers.conv2d(input_layer, filters=30, kernel_size=[3,3], padding='SAME', activation=tf.nn.relu)
+pool1 = tf.layers.max_pooling2d(conv1, pool_size=[2,2], strides=2)
+conv2 = tf.layers.conv2d(pool1, filters=30, kernel_size=[3,3], padding='SAME', activation=tf.nn.relu)
+pool2 = tf.layers.max_pooling2d(conv2, pool_size=[2,2], strides=2)
+conv3 = tf.layers.conv2d(pool2, filters=30, kernel_size=[3,3], padding='SAME', activation=tf.nn.relu)
+pool3 = tf.layers.max_pooling2d(conv3, pool_size=[2,2], strides=2)
+flatten = tf.reshape(pool3,shape=[-1, (12*12*30)])
+fc1 = tf.layers.dense(flatten, units=2048, activation=tf.nn.relu)
+dropout = tf.layers.dropout(fc1, rate=0.3)
+fc2 = tf.layers.dense(dropout, units=1024, activation=tf.nn.relu)
+logits = tf.layers.dense(fc2, units=2)
+
+
+# Define loss
+loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=label_one_hot))
+
+optimizer = tf.train.AdamOptimizer()
+training_operation = optimizer.minimize(loss)
+# Accuracy
+# Evaluate the model
+correct_pred = tf.equal(tf.argmax(logits, 1), tf.argmax(label_one_hot, 1))
+# Accuracy calculation
+accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+
+with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+    
+    for i in range(5):
+        sess.run(training_operation, feed_dict={image_place: X_train, label_place: y_train})
+        accuracy_output = sess.run(accuracy, feed_dict={image_place: X_train, label_place: y_train})
+        print("EPOCH {}...".format(i))
+        print("Accuracy = {a: 0.3f}".format(a=accuracy_output))
+        writer = tf.summary.FileWriter('./graphs', sess.graph)
