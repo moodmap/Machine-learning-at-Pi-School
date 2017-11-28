@@ -1,0 +1,81 @@
+#P2 Xlarge GPUs were giving OOM errors due to the size of our images, therefore got creative with test accuracy.
+#Tried with T2's but due to an upcoming deadline the processing was just too slow.
+#Not happy with the confusion matrices as they only represent batches, so would like to improve on this without getting OOMs
+
+
+import tensorflow as tf
+import pandas as pd
+from PIL import Image
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
+import pickle
+
+our_data = pickle.load(open("../ourdata.pickle", "rb"))
+
+X_train = our_data['X_train']
+X_test = our_data['X_test']
+y_train = our_data['y_train']
+y_test = our_data['y_test']
+
+EPOCHS = 100
+BATCH_SIZE = 30
+
+image_place = tf.placeholder(tf.float32, shape=[None,400,512,3])
+label_place = tf.placeholder(tf.int32, shape=[None,])
+one_hot = tf.one_hot(label_place, depth=6)
+
+input_layer = tf.reshape(image_place, [-1,400,512,3])
+conv1 = tf.layers.conv2d(input_layer,filters=20,kernel_size=[3,3],padding="SAME",activation=tf.nn.relu)
+pool1 = tf.layers.max_pooling2d(conv1, pool_size=[2,2],strides=2)
+flattened = tf.reshape(pool1, [-1,(200*256*20)])
+dropout = tf.layers.dropout(flattened, rate=0.5)
+logits = tf.layers.dense(dropout, units=6)
+
+loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=one_hot,logits=logits))
+optimiser = tf.train.AdamOptimizer()
+training_op = optimiser.minimize(loss)
+
+correct_pred = tf.equal(tf.argmax(logits, 1), tf.argmax(one_hot, 1))
+accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+confusion = tf.confusion_matrix(tf.argmax(one_hot, 1),tf.argmax(logits, 1))
+
+with tf.Session() as sess:
+    init = tf.global_variables_initializer()
+    sess.run(init)
+    print("Variables initialised")
+    
+for step in range(EPOCHS):
+        X_train, y_train = shuffle(X_train, y_train)
+        if step == 0:
+            print("Data shuffled")
+        for b_start in range(0,len(X_train),BATCH_SIZE):
+            b_end = b_start + BATCH_SIZE
+            X_batch, y_batch = X_train[b_start:b_end], y_train[b_start:b_end]
+
+            sess.run(training_op, feed_dict={image_place:X_batch,label_place:y_batch})
+
+        train_accuracy, train_confusion = sess.run([accuracy,confusion], feed_dict={image_place:X_batch,label_place:y_batch})
+        test_accuracy_sum = 0
+        count = 0
+        for b_test_start in range(0,len(X_test),BATCH_SIZE):
+            b_test_end = b_test_start + BATCH_SIZE
+            X_test_batch, y_test_batch = X_test[b_test_start:b_test_end], y_test[b_test_start:b_test_end]
+            test_accuracy, test_confusion = sess.run([accuracy,confusion], feed_dict={image_place:X_test_batch,label_place:y_test_batch})
+            test_accuracy_sum += test_accuracy
+            count += 1
+        test_accuracy_final = test_accuracy_sum/count
+        print("Starting test conf matrix")
+        print("Conf matrix done")
+
+        print("EPOCH: {}".format(step))
+        print("Train acc: {}".format(train_accuracy))
+        print("Sanity check, test accuracy = {}, test accuracy sum = {}".format(test_accuracy, test_accuracy_sum))
+        print("Test acc: {}".format(test_accuracy_final))
+        print("\nTrain confusion:\n {}\nTest confusion: \n{}".format(train_confusion,test_confusion))
+
+
+
+
