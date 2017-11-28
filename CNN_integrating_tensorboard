@@ -1,0 +1,101 @@
+import tensorflow as tf
+import pandas as pd
+from PIL import Image
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
+import pickle
+
+our_data = pickle.load(open("ourdata.pickle", "rb"))
+
+X_train = our_data['X_train']
+X_test = our_data['X_test']
+y_train = our_data['y_train']
+y_test = our_data['y_test']
+
+EPOCHS = 100
+BATCH_SIZE = 10
+
+image_place = tf.placeholder(tf.float32, shape=[None,400,512,3])
+label_place = tf.placeholder(tf.int32, shape=[None,])
+one_hot = tf.one_hot(label_place, depth=6)
+
+input_layer = tf.reshape(image_place, [-1,400,512,3])
+conv1 = tf.layers.conv2d(input_layer,filters=20,kernel_size=[3,3],padding="SAME",activation=tf.nn.relu)
+pool1 = tf.layers.max_pooling2d(conv1, pool_size=[2,2],strides=2)
+
+flattened = tf.reshape(pool1, [-1,(200*256*20)])
+fc1 = tf.layers.dense(flattened, units=30)
+dropout = tf.layers.dropout(fc1, rate=0.8)
+logits = tf.layers.dense(dropout, units=6)
+
+loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=one_hot,logits=logits))
+optimiser = tf.train.AdamOptimizer()
+training_op = optimiser.minimize(loss)
+
+correct_pred = tf.equal(tf.argmax(logits, 1), tf.argmax(one_hot, 1))
+accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+confusion = tf.confusion_matrix(tf.argmax(one_hot, 1),tf.argmax(logits, 1))
+
+
+train_acc_graph = tf.summary.scalar('Train Accuracy', accuracy)
+eval_acc_graph = tf.summary.scalar('Eval Accuracy', accuracy)
+merge = tf.summary.merge_all()
+writer = tf.summary.FileWriter("graph")
+
+with tf.Session() as sess:
+    init = tf.global_variables_initializer()
+    sess.run(init)
+    print("Variables initialised")
+
+    global_step = 0
+    global_step_eval = 0
+    
+     for step in range(EPOCHS):
+        X_train, y_train = shuffle(X_train, y_train)
+        X_test, y_test = shuffle(X_test, y_test)
+        if step == 0:
+            print("Data shuffled")
+        for b_start in range(0,len(X_train),BATCH_SIZE):
+            b_end = b_start + BATCH_SIZE
+            X_batch, y_batch = X_train[b_start:b_end], y_train[b_start:b_end]
+
+            sess.run(training_op, feed_dict={image_place:X_batch,label_place:y_batch})
+
+        train_accuracy_sum = 0
+        train_count = 0
+        for b_train_start in range(0,len(X_train),BATCH_SIZE):
+            global_step += 1
+            b_train_end = b_train_start + BATCH_SIZE
+            X_train_batch, y_train_batch = X_train[b_train_start:b_train_end], y_train[b_train_start:b_train_end]
+            train_acc_output, train_accuracy, train_confusion = sess.run([train_acc_graph, accuracy, confusion], feed_dict={image_place:X_train_batch,label_place:y_train_batch})
+            writer.add_summary(train_acc_output, global_step)
+            writer.flush()
+            train_accuracy_sum += train_accuracy
+            train_count += 1
+        train_accuracy_final = train_accuracy_sum/train_count
+
+
+ test_accuracy_sum = 0
+        test_count = 0
+        for b_test_start in range(0,len(X_test),BATCH_SIZE):
+            global_step_eval += 1
+            b_test_end = b_test_start + BATCH_SIZE
+            X_test_batch, y_test_batch = X_test[b_test_start:b_test_end], y_test[b_test_start:b_test_end]
+            test_acc_output, test_accuracy, test_confusion = sess.run([eval_acc_graph, accuracy, confusion], feed_dict={image_place:X_test_batch,label_place:y_test_batch})
+            writer.add_summary(test_acc_output, global_step_eval)
+            writer.flush()
+            test_accuracy_sum += test_accuracy
+            test_count += 1
+        test_accuracy_final = test_accuracy_sum/test_count
+
+        print("EPOCH: {}".format(step))
+        print("Train acc: {}".format(train_accuracy_final))
+        print("Sanity check, test accuracy = {}, test accuracy sum = {}".format(test_accuracy, test_accuracy_sum))
+        print("Test acc: {}".format(test_accuracy_final))
+        print("\nTrain confusion:\n {}\nTest confusion: \n{}".format(train_confusion,test_confusion))
+
+
+
